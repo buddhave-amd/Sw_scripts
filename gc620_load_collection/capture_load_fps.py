@@ -10,7 +10,7 @@
 5. Done : push min max avg values of core0 and core1 & avg fps to result.csv
 6. TBD : if we give dual core --> core0& core1 commands todgether come up in ffmpeg_log_x.txt --> that needs to be split into ffmpeg_log_core0_x.txt and ffmpeg_log_core1_x.txt & also if its single core change the name to ffmpeg_log_core0_x.txt instead of ffmpeg_log_x.txt
 7. TBD : Add a option to give cumulative csv file --if that is given in addition to the single_test/result.csv the csv given by user will also be populated- This will make it easier to collect logs without any postprocessing
-8. TBD : Instead of single test , the user should be able to pass options as tuples, And if the tuple is passed the default options(which run all important cases) will be overwritten, else all the pre defined test cases will be run by default
+8. TBD : Instead of single test , the user should be able to pass options as tuples, And if the tuple is passed the default options(which run all important cases) will be overwritten, else all the pre defined test cases will be run by default
 '''
 #print("python3 gc620_collect_load_fps.py <options>")
 
@@ -61,54 +61,57 @@ print(f"out_folder : {cli_options.out_folder}")
 print("####################################")
 ### Functions 
 def calculate_stats(filename):
-    with open(filename, 'r') as file:
-        values = [int(line.strip()) for line in file]
-    #if len(values) <= 10:
-    #    raise ValueError("Not enough values to skip the first and last 5")
-
-    central_values = values[5:-5]
-    filtered_central_values = [v for v in central_values if v != 0]
-
-    if( len(filtered_central_values) == 0):
+    try:
+        with open(filename, 'r') as file:
+            values = [int(line.strip()) for line in file]
+        #if len(values) <= 10:
+        #    raise ValueError("Not enough values to skip the first and last 5")
+        
+        central_values = values[5:-5]
+        filtered_central_values = [v for v in central_values if v != 0]
+        
+        if( len(filtered_central_values) == 0):
+            return 0,0,0
+        min_value = min(filtered_central_values)
+        max_value = max(filtered_central_values)
+        avg_value = sum(filtered_central_values) / len(filtered_central_values)
+        
+        return min_value, max_value, avg_value
+    except:
         return 0,0,0
-    min_value = min(filtered_central_values)
-    max_value = max(filtered_central_values)
-    avg_value = sum(filtered_central_values) / len(filtered_central_values)
-
-    return min_value, max_value, avg_value
-
 def killfunc():
     print("Killing ffmpeg using SIGINT")
     subprocess.Popen("pkill -u $USER -SIGINT ffmpeg", shell=True)
 
 def extract_last_fps_and_average(log_pattern):
     fps_values = []
-
-    for log_file in glob.glob(log_pattern):
-        with open(log_file, 'r') as file:
-            lines = file.readlines()
-
-        last_fps_line = None
-        for line in lines:
-            if 'fps=' in line:
-                last_fps_line = line
-
-        if last_fps_line:
-            match = re.search(r'fps=\s*(\d+)', last_fps_line)
-            if match:
-                fps_values.append(int(match.group(1)))
+    try:
+        for log_file in glob.glob(log_pattern):
+            with open(log_file, 'r') as file:
+                lines = file.readlines()
+        
+            last_fps_line = None
+            for line in lines:
+                if 'fps=' in line:
+                    last_fps_line = line
+        
+            if last_fps_line:
+                match = re.search(r'fps=\s*(\d+)', last_fps_line)
+                if match:
+                    fps_values.append(int(match.group(1)))
+                else:
+                    print(f"No FPS value found in line: {last_fps_line} in file: {log_file}")
             else:
-                print(f"No FPS value found in line: {last_fps_line} in file: {log_file}")
+                print(f"No 'fps=' line found in file: {log_file}")
+        
+        # Calculate the average FPS if any values were found
+        if fps_values:
+            avg_fps = sum(fps_values) / len(fps_values)
+            return avg_fps, fps_values
         else:
-            print(f"No 'fps=' line found in file: {log_file}")
-
-    # Calculate the average FPS if any values were found
-    if fps_values:
-        avg_fps = sum(fps_values) / len(fps_values)
-        return avg_fps, fps_values
-    else:
-        return None, fps_values
-
+            return None, fps_values
+    except :
+        return "0"
 ### Defaults 
 in_file_dirname="/proj/video_qa/MA35_QA/InputVectors_TypicalBitrate/MRD_Corrected/NFR/Normal/nfr_normal_mp4_0a1v/vector_30K_frames/"
 csv_header_string="test,Resolution,Pix_fmt,Bit_depth,Avg_fps,Core0_Min_load,Core0_Max_load,Core0_Avg_load,Core1_Min_load,Core1_Max_load,Core1_Avg_load,Density,CLI"
@@ -124,7 +127,11 @@ in_8bit_file_name_dict={
     "720p60" : "Marathon_720p60_5M_2b_8bit_30K_fr_0A1V_ffmpeg6_h264.mp4" ,
     "720p30" : "Marathon_720p30_4M_2b_8bit_30K_fr_0A1V_ffmpeg6_h264.mp4" ,
     "540p60" : "Marathon_540p60_6M_2b_8bit_30K_fr_0A1V_ffmpeg6_h264.mp4" ,
-    "540p30" : "Marathon_540p30_3M_2b_8bit_30K_fr_0A1V_ffmpeg6_h264.mp4"
+    "540p30" : "Marathon_540p30_3M_2b_8bit_30K_fr_0A1V_ffmpeg6_h264.mp4" ,
+    "360p60" : "Marathon_360p60_4M_2b_8bit_30K_fr_0A1V_ffmpeg6_h264.mp4" ,
+    "360p30" : "Marathon_360p30_2M_2b_8bit_30K_fr_0A1V_ffmpeg6_h264.mp4" ,
+    "240p60" : "Marathon_240p60_2M_2b_8bit_30K_fr_0A1V_ffmpeg6_h264.mp4" ,
+    "240p30" : "Marathon_240p30_1M_2b_8bit_30K_fr_0A1V_ffmpeg6_h264.mp4"
 }
 
 in_10bit_file_name_dict={
@@ -138,7 +145,12 @@ in_10bit_file_name_dict={
     "720p60" : "Marathon_720p60_5500K_2b_10bit_30K_fr_0A1V_ffmpeg6_h264.mp4" ,
     "720p30" : "Marathon_720p30_4400K_2b_10bit_30K_fr_0A1V_ffmpeg6_h264.mp4" ,
     "540p60" : "Marathon_540p60_6600K_2b_10bit_30K_fr_0A1V_ffmpeg6_h264.mp4" ,
-    "540p30" : "Marathon_540p30_3300K_2b_10bit_30K_fr_0A1V_ffmpeg6_h264.mp4"
+    "540p30" : "Marathon_540p30_3300K_2b_10bit_30K_fr_0A1V_ffmpeg6_h264.mp4" ,
+    "360p60" : "Marathon_360p60_4400K_2b_10bit_30K_fr_0A1V_ffmpeg6_h264.mp4" , 
+    "360p30" : "Marathon_360p30_2200K_2b_10bit_30K_fr_0A1V_ffmpeg6_h264.mp4" , 
+    "240p60" : "Marathon_240p60_2200K_2b_10bit_30K_fr_0A1V_ffmpeg6_h264.mp4" , 
+    "240p30" : "Marathon_240p30_1M_2b_10bit_30K_fr_0A1V_ffmpeg6_h264.mp4"
+
 }
 
 in_file_name_dict = {"8": in_8bit_file_name_dict , "10": in_10bit_file_name_dict }
@@ -160,7 +172,7 @@ density_medium_preset_dict={
 }
 
 in_resolution_dict={
-    "4320p30": "7680×4320" ,
+    "4320p30": "7680x4320" ,
     "2160p60": "3840x2160" ,
     "2160p30": "3840x2160" ,
     "1440p60": "2560x1440" ,
@@ -171,6 +183,20 @@ in_resolution_dict={
     "720p30" : "1280x720" ,
     "540p60" : "960x540" ,
     "540p30" : "960x540"
+}
+
+in_OverlayHalfResolution_dict={
+    "4320p30": "2160p30" ,
+    "2160p60": "1080p60" ,
+    "2160p30": "1080p30" ,
+    "1440p60": "720p60" ,
+    "1440p30": "720p30" , 
+    "1080p60": "540p60" ,
+    "1080p30": "540p30" ,
+    "720p60" : "360p60"  ,
+    "720p30" : "360p30"  ,
+    "540p60" : "240p60"  ,
+    "540p30" : "240p30" 
 }
 
 #dual/single
@@ -239,7 +265,8 @@ load_file_core1=f"/sys/class/misc/ama_transcoder{cli_options.device_id}/perf/gc6
 #check if device exists
 #if resolution is not in the standard resolutions above , check if density and input are given or not --else error out
 
-#drawbox CLI strings
+###CLI intermediate strings
+#dec
 if (cli_options.pix_fmt != ""  and cli_options.scaler_on_flag == False ) :
     dec_out_fmt_option="-out_fmt"
     dec_out_fmt_str= dec_out_fmt_option + " " +   cli_options.pix_fmt
@@ -247,7 +274,7 @@ else :
     dec_out_fmt_str= ""
 
 
-
+#scaler
 if (cli_options.scaler_on_flag == True) :
     if ( cli_options.pix_fmt != ""):
         scaler_str=f"scaler_ama=outputs=1:out_res=({in_resolution_dict[cli_options.resolution_fps]}|{cli_options.pix_fmt})[a];[a]"
@@ -257,7 +284,7 @@ else:
      scaler_str=""  
 ###
 
-#derive 
+#derive & assign induvidual filter CLI
 drawbox_width=600
 drawbox_height=600
 print(int(cli_options.resolution_fps.split("p")[0]))
@@ -267,32 +294,68 @@ if(int(cli_options.resolution_fps.split("p")[0]) == 540 ):
 
 drawbox_CLI=f"ffmpeg -nostdin  -y -hwaccel ama -hwaccel_device /dev/ama_transcoder{cli_options.device_id} -stream_loop -1 -xerror -re -c:v h264_ama {dec_out_fmt_str} -i {input} -filter_complex \"{scaler_str}drawbox_ama=thickness=16:color=red:x=0:y=0:w={drawbox_width}:h={drawbox_height}\" -vframes {vframes_count} -f NULL -"     
 
+#overlay parameters
+overlay_2nd_input = default_input_folder + in_file_name_dict[str(cli_options.bit_depth)][in_OverlayHalfResolution_dict[cli_options.resolution_fps]]
 
-print(f"#########CLI : {drawbox_CLI}")
+if (cli_options.filter == "overlay " and cli_options.scaler_on_flag == True):
+    print("\n overlay with scaler option currently not supported")
+    exit
 
-killfunc()
+#    
+overlay_res=str(in_resolution_dict[cli_options.resolution_fps])
+#print(overlay_res)
+##print(overlay_res.split("x"))
+overlay_x_coord=int(overlay_res.split("x")[0])//2
+#print(overlay_res)
+overlay_y_coord=int(overlay_res.split("x")[1])//2
+
+overlay_CLI1=f"ffmpeg -nostdin  -y -hwaccel ama -hwaccel_device /dev/ama_transcoder{cli_options.device_id} -xerror -re -c:v h264_ama {dec_out_fmt_str} -i {input} -re -c:v h264_ama {dec_out_fmt_str} -i {overlay_2nd_input} -filter_complex \"[0:v][1:v]overlay_ama=x={overlay_x_coord}:y={overlay_y_coord}\" -vframes {vframes_count} -f NULL -"   
+#overlayCLI2=f"ffmpeg -nostdin  -y -hwaccel ama -hwaccel_device /dev/ama_transcoder{cli_options.device_id} -xerror -re -c:v h264_ama {dec_out_fmt_str} -i {input} -re -c:v h264_ama {dec_out_fmt_str} -i {input} -filter_complex \"[0:v][1:v]overlay_ama=x={overlay_x_coord}:y={overlay_y_coord}\" -vframes {vframes_count} -f NULL -" #exceeds decoder Max capacity for fast preset
+overlayCLI2=f"ffmpeg -nostdin  -y -hwaccel ama -hwaccel_device /dev/ama_transcoder{cli_options.device_id} -xerror -re -c:v h264_ama {dec_out_fmt_str} -i {input} -filter_complex \"split=2[out1][out2];[out1][out2]overlay_ama=x={overlay_x_coord}:y={overlay_y_coord}\" -vframes {vframes_count} -f NULL -"
+overlayCLI3=f"ffmpeg -nostdin  -y -hwaccel ama -hwaccel_device /dev/ama_transcoder{cli_options.device_id} -xerror -re -c:v h264_ama {dec_out_fmt_str} -i {input} -filter_complex \"split=2[out1][out2];[out1][out2]overlay_ama=alpha=0.5:x={overlay_x_coord}:y={overlay_y_coord}\" -vframes {vframes_count} -f NULL -"
+
+
+#print(f"#########CLI : {drawbox_CLI}")
+
+###Assign CLI based on filter selected
+if (cli_options.filter == "drawbox" or cli_options.filter == "drawbox_ama"):
+    cmd_CLI=drawbox_CLI 
+elif (cli_options.filter == "overlay" or cli_options.filter == "overlay_ama" or cli_options.filter == "overlay_cli1"):
+    cmd_CLI=overlayCLI1 
+elif (cli_options.filter == "overlay_cli2"  ) : 
+    cmd_CLI=overlayCLI2
+elif (cli_options.filter == "overlay_cli3"  ) : 
+    cmd_CLI=overlayCLI3
+
+
+
 
 
 #execution
+killfunc()
 cmds_list=[]
 for density in range(target_density):
 
     log_str= f" >> {result_dir}/ffmpeg_log_{density}.txt 2>&1 & "
-    cmd_CLI=drawbox_CLI 
     cmd= cmd_CLI + log_str
-    print(cmd)
+    print("###Command_core0:"+cmd)
     cmds_list.append(cmd)
     os.system(cmd)
     cmd_coreid1=""
     cmd_coreid1_CLI=""
     if (cli_options.dual_core == True ):
-        #cmd_coreid1 = cmd.replace("x=0:y=0:w=600:h=600","x=0:y=0:w=600:h=600:core_id=1") ## quick workaround for drawbox dual core , need to fix for generalising and other filter dual cores
-        #cmd_coreid1 = cmd.replace("x=0:y=0:w=500:h=500","x=0:y=0:w=500:h=500:core_id=1") ## quick workaround for drawbox dual core , need to fix for generalising and other filter dual cores
-        #cmd_coreid1 = cmd.replace("\" vframes",":core_id=1\" vframes") ## quick workaround for drawbox dual core , need to fix for generalising and other filter dual cores
-        cmd_coreid1 = re.sub(r'h=(\d+)"', r'h=\1:core_id=1"', cmd)
-        cmd_coreid1_CLI= re.sub(r'h=(\d+)"', r'h=\1:core_id=1"', cmd_CLI)
+        if (cli_options.filter == "drawbox" or cli_options.filter == "drawbox_ama"):
+            cmd_coreid1 = re.sub(r'h=(\d+)"', r'h=\1:core_id=1"', cmd) #Assuming the gc620 Usage comes in the end, so adding core_id at the end of filter_complex
+            cmd_coreid1_CLI= re.sub(r'h=(\d+)"', r'h=\1:core_id=1"', cmd_CLI) #Assuming the gc620 Usage comes in the end, so adding core_id at the end of filter_complex
+        elif (cli_options.filter == "overlay" or cli_options.filter == "overlay_ama" or cli_options.filter == "overlay_cli1" ):
+            cmd_coreid1 = re.sub(r'y=(\d+)"', r'y=\1:core_id=1"', cmd) #Assuming the gc620 Usage comes in the end, so adding core_id at the end of filter_complex
+            cmd_coreid1_CLI= re.sub(r'y=(\d+)"', r'y=\1:core_id=1"', cmd_CLI) #Assuming the gc620 Usage comes in the end, so adding core_id at the end of filter_complex
+        elif (cli_options.filter == "overlay_cli2" or cli_options.filter == "overlay_cli3" ) : 
+            cmd_coreid1 = re.sub(r'y=(\d+)"', r'y=\1:core_id=1"', cmd) #Assuming the gc620 Usage comes in the end, so adding core_id at the end of filter_complex
+            cmd_coreid1_CLI= re.sub(r'y=(\d+)"', r'y=\1:core_id=1"', cmd_CLI) #Assuming the gc620 Usage comes in the end, so adding core_id at the end of filter_complex    
+        
         os.system(cmd_coreid1)
-        print("$$$$$$$$$$$$$$"+cmd_coreid1)
+        print("###Command_core1:"+cmd_coreid1)
         cmds_list.append(cmd_coreid1)
 
 #load collection    
@@ -332,7 +395,7 @@ avg_fps, fps_values= extract_last_fps_and_average(result_dir+"/ffmpeg_log*.txt")
 with open(result_csv_file, 'w') as file:
     # Convert dictionary to string and write it 
     file.write(csv_header_string + "\n") 
-    file.write(f"{out_folder},{cli_options.resolution_fps},{cli_options.pix_fmt}{cli_options.bit_depth},{avg_fps},{core0_min_load},{core0_max_load},{core0_avg_load:.5f},{core1_min_load},{core1_max_load},{core1_avg_load:.5f},{target_density},{cmd_CLI} & {cmd_coreid1_CLI}\n")
+    file.write(f"{out_folder},{cli_options.resolution_fps},{cli_options.pix_fmt},{cli_options.bit_depth},{avg_fps},{core0_min_load},{core0_max_load},{core0_avg_load:.5f},{core1_min_load},{core1_max_load},{core1_avg_load:.5f},{target_density},{cmd_CLI} & {cmd_coreid1_CLI}\n")
     #TBD : Instead of writing like this, load all var names into a list and map header names to that list and use a loop to populate to avoid misalignment
 if (cli_options.out_csv == ""):
     print(f"Results can be found in {result_csv_file}")
@@ -345,7 +408,7 @@ else :
     else:
         consolidated_results_file = open(csv_file_path, 'a')
     
-    consolidated_results_file.write(f"{out_folder},{cli_options.resolution_fps},{cli_options.pix_fmt}{cli_options.bit_depth},{avg_fps},{core0_min_load},{core0_max_load},{core0_avg_load:.5f},{core1_min_load},{core1_max_load},{core1_avg_load:.5f},{target_density},{cmd_CLI} & {cmd_coreid1_CLI}\n")
+    consolidated_results_file.write(f"{out_folder},{cli_options.resolution_fps},{cli_options.pix_fmt},{cli_options.bit_depth},{avg_fps},{core0_min_load},{core0_max_load},{core0_avg_load:.5f},{core1_min_load},{core1_max_load},{core1_avg_load:.5f},{target_density},{cmd_CLI} & {cmd_coreid1_CLI}\n")
     print(f"Results can be found in {result_csv_file} and {cli_options.out_csv}")
     consolidated_results_file.close()
 

@@ -33,21 +33,22 @@ def compare_csv(file1, file2):
     for row1, row2 in zip(data1, data2):
         i=i+1
         # Check if the TC ids match
+        if row1['Execution_Result'] !='PASS' and row1['Execution_Result'] !='FAIL' :
+            continue
         if row1['TC id'] != row2['TC id']:
-            print(f"Warning: Mismatched test case IDs: {row1['TC id']} vs {row2['TC id']}")
+            print(f"Warning: Mismatched test case IDs: {row1['TC id']} vs {row2['TC id']})")
             differences.append({
                 'S.No' : f"{i}",
                 'TC id': f"NOCHECK: Different testcaseIDs",
                 'MD5 sum 1': 'NOCHECK',
                 'MD5 sum 2': 'NOCHECK',
                 'Command': 'NOCHECK',
-                'Result': "NOCHECK",
                 'Final result': "NOCHECK"
             })            
             continue    
         final_result = ""  # Initialize the final result column for each row
 
-        if row1['Result'] == 'PASS' and row2['Result'] == 'PASS':
+        if row1['Execution_Result'] == 'PASS' and row2['Execution_Result'] == 'PASS':
             # Compare MD5 sums for PASS cases
             if row1['MD5 sum'] != row2['MD5 sum']:
                 final_result = "MISMATCH"
@@ -57,7 +58,6 @@ def compare_csv(file1, file2):
                     'MD5 sum 1': row1['MD5 sum'],
                     'MD5 sum 2': row2['MD5 sum'],
                     'Command': row1['Executed Command'],
-                    'Result': "PASS",
                     'Final result': "MISMATCH"
                 })
             else:
@@ -68,7 +68,6 @@ def compare_csv(file1, file2):
                     'MD5 sum 1': row1['MD5 sum'],
                     'MD5 sum 2': row2['MD5 sum'],
                     'Command': row1['Executed Command'],
-                    'Result': "PASS",
                     'Final result': "MATCH"
                 })
         else:
@@ -77,11 +76,10 @@ def compare_csv(file1, file2):
             differences.append({
                 'S.No' : f"{i}",
                 'TC id': row1['TC id'],
-                'MD5 sum 1': '',
-                'MD5 sum 2': '',
+                'MD5 sum 1': row1['MD5 sum'],
+                'MD5 sum 2': row2['MD5 sum'],
                 'Command': row1['Executed Command'],
-                'Result': 'FAIL',
-                'Final result': "EXECUTION FAIL"
+                'Final result': f"NOCHECK: EXECUTION FAIL(set1 : {row1['Execution_Result']}; Set2:{row2['Execution_Result']})"
             })
 
     return differences
@@ -89,7 +87,7 @@ def compare_csv(file1, file2):
 def write_csv(results, output_file):
     """Write comparison results to a CSV file."""
     with open(output_file, 'w', newline='') as csvfile:
-        fieldnames = ['S.No','TC id', 'Result', 'MD5 sum 1', 'MD5 sum 2', 'Command', 'Final result']
+        fieldnames = ['S.No','TC id', 'Final result', 'MD5 sum 1', 'MD5 sum 2', 'Command']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
         writer.writeheader()

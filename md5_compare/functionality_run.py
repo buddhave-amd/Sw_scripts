@@ -11,7 +11,9 @@ import hashlib
 import shutil
 import platform
 from datetime import datetime
+import pandas as pd
 
+total_iterations=1
 linux_path="/proj/video_qa/MA35_QA"
 windows_mapped_drive_path="T:"
 linux_path_fmg="/opt/amd/ama/ma35/bin/ffmpeg"
@@ -31,7 +33,11 @@ LAST_N_LINES = 8
 def time_stamp():
     current_timestamp = datetime.now()
     return current_timestamp.strftime("%Y-%m-%d_%H-%M-%S")
-
+def quote_if_needed(value):
+    if ',' in value:
+        value=value.replace("\"","\"\"")
+        return f'"{value}"'
+    return value
 def Get_OS_kernal(tag):
     # Get the operating system version like U20,U22
     OS_ID = subprocess.check_output("cat /etc/os-release | grep ^ID=", shell=True).decode(
@@ -472,13 +478,17 @@ def Kill_application(process_name):
                 print(f"Could not terminate process {proc.info['pid']}: {e}")
                 raise SystemExit(f'ERROR: Unable to terminate process, Exception: {e}')
                 
-def run_func_test(tc_num,dev,cmd,md5val,cr_num,app):
+def run_func_test(tc_num,dev,cmd,md5val,cr_num,app,run_folder):
+    global total_iterations
+    if total_iterations >1 and run_folder !="NA":
+        os.makedirs(run_folder, exist_ok=True)
+        os.chdir(run_folder)
     global timeout_value
     #killing the application before executing the command
     if cur_platform == 'windows':
         Kill_application(app + '.exe')
-    else:
-        Kill_application(app)
+    #else:
+    #    Kill_application(app)
     subp_arr=[]
     j=0
     cmd = cmd.strip()
@@ -538,9 +548,9 @@ def run_func_test(tc_num,dev,cmd,md5val,cr_num,app):
             process = psutil.Process(subp.pid)
             for proc in process.children(recursive=True):
                 proc.terminate()
-                proc.wait(timeout=10)
+                proc.wait(timeout=40)
             process.terminate()
-            proc.wait(timeout=10)
+            proc.wait(timeout=40)
             md5_arr, num_md5 = generate_md5sum_using_tc_outputs(tc_out_names)
             return 'FAIL',md5val,'NULL',cr_num,"Command execution timed out",new_cmd
         except Exception as e:
@@ -741,11 +751,13 @@ def script_usage():
     print("*Optional parameter -out '<parameter1,value1,parameter2,value2...(no spaces)>' Adds")
     print("parameters on the output side. If a parameter does not have a value then keep it as NA")
     print("example -out '-bf,3,-b:v,1M'")
+    print(" -i :iterate/run each command N times(Default =1). This can be used to check consistancy of md5sums")
 
 def main_wrapper():
     global timeout_value
     global device
     global prev_fname
+    global total_iterations
     if '-h' in sys.argv or '--help' in sys.argv:
         script_usage()
         exit(0)
@@ -762,7 +774,11 @@ def main_wrapper():
         script_usage()
         exit(0)
     tc_num = 1
-
+    try:
+        total_iterations_index_value = sys.argv.index("-i") + 1
+        total_iterations = int(sys.argv[total_iterations_index_value])
+    except (ValueError,IndexError) as ve:
+        print(f'The specified -i was not found, default -i is {total_iterations} iteration for each command') 
     try:
         tag = sys.argv.index("-K") + 1
         if '-' not in sys.argv[tag][0]:
@@ -770,7 +786,13 @@ def main_wrapper():
             try:
                 if cur_platform == 'linux':
                     tag = Get_OS_kernal(tag)
-                op_file_name = 'Report_' + tag + '_' + time_stamp() + '.csv'
+                op_folder_name= 'Report_' + tag + '_' + time_stamp()
+                os.makedirs(op_folder_name, exist_ok=True)     
+                #op_res_name = os.path.join(op_folder_name, "output_results.xlsx")   
+                if total_iterations >1:   
+                    op_file_name = os.path.join(op_folder_name, "output_results.csv") 
+                else:                    
+                    op_file_name = 'Report_' + tag + '_' + time_stamp() + '.csv'
             except Exception as e:
                 print(f'op_file_name fine name creation failed Error: {e}')
                 exit(0)
@@ -787,6 +809,7 @@ def main_wrapper():
         timeout_value = int(sys.argv[timeout_value_index])
     except (ValueError,IndexError) as ve:
         print(f'The specified -t was not found, default -t is {timeout_value} sec')
+       
     try:
         standalone_index = sys.argv.index("-standalone")
     except:
@@ -940,7 +963,7 @@ def main_wrapper():
                                     print(f"ERROR:Currently {out_args} feature not support for 'gst-launch-1.0'|'ma35'")
                                     exit(0)
                                 command = add_out_params(command, out_args)
-                            execution_result,md5val_ret,md5sum_op,cr_num_ret,error_code,new_cmd =run_func_test(test_id,device,command,md5val,cr_num,app)
+                            execution_result,md5val_ret,md5sum_op,cr_num_ret,error_code,new_cmd =run_func_test(test_id,device,command,md5val,cr_num,app,"NA")
                             write_file(test_id,density,fps,md5val_ret,command,filepath)
                             tag_test_id = tag+'-'+folder_path+'-'+test_id
                             out=[tag_test_id,execution_result,md5val,md5sum_op,cr_num_ret,error_code,new_cmd]
@@ -980,82 +1003,182 @@ def main_wrapper():
                 exit(0)
         # ************************************************************
         if os.path.isfile(filepath):
-            with open(filepath) as csvf:
-                tc_num = 1
-                outfilename = filepath.replace(".txt",file_pattern)
-                ftemp=open(outfilename, 'w')
-                ftemp.close()
-                print(f"File : {filepath}")
-                with open(op_file_name,'a') as op_file:
-                    # op_file.write(f"File : {filepath}"+'\n')
-                    print(",".join(header))
-                    op_file.write(",".join(header)+'\n')
-                file_cases = 0
-                file_passed_cases = 0
-                for row in csvf:
-                    data = row.strip().split(',')
-                    for app in ['ffmpeg', 'gst-launch-1.0', 'ma35_decoder_app', 'ma35_encoder_app', 'ma35_ml_app',
-                                'ma35_scaler_app', 'ma35_transcoder_app','ma35_roi_transcoder_app']:
-                        if len(data) >= 5 and app in data[4].split(' ')[0]:
-                            test_id, density, fps, md5val, command = data[0], data[1], data[2], data[3], data[4].strip().split(' > ')[0]
-                            if len(data) > 5:
-                                command = ','.join(data[4:])
-                            break
-                        elif app in data[0].split(' ')[0]:
-                            command = row.strip().split(' > ')[0]
-                            if not command or command[0] == '#':
-                                continue
-                            test_id = fname + "_" + str(tc_num)
-                            fps = "NA"
-                            density = "NA"
-                            prev_fname = fname
-                            md5val = str(0)
-                            break
-                    else:
-                        print(f"Wrong command format in {csvf}")
-                        continue
-                    try:
-                        if cr_file_name != "NULL":
-                            cr_num=cr_list[test_id]
-                        else:
-                            cr_num="No CR found"
-                    except KeyError:
-                        cr_num="No CR found"
-
-                    tc_num = tc_num + 1
-                    if in_arg_idx:
-                        if app in ['gst-launch-1.0', 'ma35_decoder_app', 'ma35_encoder_app', 'ma35_ml_app',
-                                   'ma35_scaler_app', 'ma35_transcoder_app','ma35_roi_transcoder_app']:
-                            print(f"ERROR:Currently {in_args} feature not support for 'gst-launch-1.0'|'ma35'")
-                            exit(0)
-                        command = add_in_params(command, in_args)
-                    if out_arg_idx:
-                        if app in ['gst-launch-1.0', 'ma35_decoder_app', 'ma35_encoder_app', 'ma35_ml_app',
-                                   'ma35_scaler_app', 'ma35_transcoder_app','ma35_roi_transcoder_app']:
-                            print(f"ERROR:Currently {out_args} feature not support for 'gst-launch-1.0'|'ma35'")
-                            exit(0)
-                        command = add_out_params(command, out_args)
-                    execution_result,md5val_ret,md5sum_op,cr_num_ret,error_code,new_cmd =run_func_test(test_id,device,command,md5val,cr_num,app)
-                    write_file(test_id,density,fps,md5val_ret,command,filepath)
-                    tag_test_id = tag + '-' + folder_path + '-' + test_id
-                    out=[tag_test_id,execution_result,md5val,md5sum_op,cr_num_ret,error_code,new_cmd]
+            if total_iterations <= 1:
+                with open(filepath) as csvf:
+                    tc_num = 1
+                    outfilename = filepath.replace(".txt",file_pattern)
+                    ftemp=open(outfilename, 'w')
+                    ftemp.close()
+                    print(f"File : {filepath}")
                     with open(op_file_name,'a') as op_file:
-                        op_file.write(','.join(out)+'\n')
-                    total_cases = total_cases + 1
-                    file_cases +=1
-                    if execution_result == "PASS":
-                        passed_cases = passed_cases + 1
-                        file_passed_cases+=1
-                print(f"File Cases Finished :{file_cases} ;Passed :{file_passed_cases} ;Failed :{file_cases - file_passed_cases}\n")
-                with open(op_file_name, 'a') as op_file:
-                    op_file.write(f"File Cases :{file_cases} ;Passed :{file_passed_cases} ;Failed :{file_cases - file_passed_cases}\n")
-
+                        # op_file.write(f"File : {filepath}"+'\n')
+                        print(",".join(header))
+                        op_file.write(",".join(header)+'\n')
+                    file_cases = 0
+                    file_passed_cases = 0
+                    for row in csvf:
+                        data = row.strip().split(',')
+                        for app in ['ffmpeg', 'gst-launch-1.0', 'ma35_decoder_app', 'ma35_encoder_app', 'ma35_ml_app',
+                                    'ma35_scaler_app', 'ma35_transcoder_app','ma35_roi_transcoder_app']:
+                            if len(data) >= 5 and app in data[4].split(' ')[0]:
+                                test_id, density, fps, md5val, command = data[0], data[1], data[2], data[3], data[4].strip().split(' > ')[0]
+                                if len(data) > 5:
+                                    command = ','.join(data[4:])
+                                break
+                            elif app in data[0].split(' ')[0]:
+                                command = row.strip().split(' > ')[0]
+                                if not command or command[0] == '#':
+                                    continue
+                                test_id = fname + "_" + str(tc_num)
+                                fps = "NA"
+                                density = "NA"
+                                prev_fname = fname
+                                md5val = str(0)
+                                break
+                        else:
+                            print(f"Wrong command format in {csvf}")
+                            continue
+                        try:
+                            if cr_file_name != "NULL":
+                                cr_num=cr_list[test_id]
+                            else:
+                                cr_num="No CR found"
+                        except KeyError:
+                            cr_num="No CR found"
+                
+                        tc_num = tc_num + 1
+                        if in_arg_idx:
+                            if app in ['gst-launch-1.0', 'ma35_decoder_app', 'ma35_encoder_app', 'ma35_ml_app',
+                                       'ma35_scaler_app', 'ma35_transcoder_app','ma35_roi_transcoder_app']:
+                                print(f"ERROR:Currently {in_args} feature not support for 'gst-launch-1.0'|'ma35'")
+                                exit(0)
+                            command = add_in_params(command, in_args)
+                        if out_arg_idx:
+                            if app in ['gst-launch-1.0', 'ma35_decoder_app', 'ma35_encoder_app', 'ma35_ml_app',
+                                       'ma35_scaler_app', 'ma35_transcoder_app','ma35_roi_transcoder_app']:
+                                print(f"ERROR:Currently {out_args} feature not support for 'gst-launch-1.0'|'ma35'")
+                                exit(0)
+                                
+                            command = add_out_params(command, out_args)
+                        execution_result,md5val_ret,md5sum_op,cr_num_ret,error_code,new_cmd =run_func_test(test_id,device,command,md5val,cr_num,app,"NA")
+                        write_file(test_id,density,fps,md5val_ret,command,filepath)
+                        tag_test_id = tag + '-' + folder_path + '-' + test_id
+                        out=[tag_test_id,execution_result,md5val,md5sum_op,cr_num_ret,error_code,new_cmd]
+                        with open(op_file_name,'a') as op_file:
+                            op_file.write(','.join(out)+'\n')
+                        total_cases = total_cases + 1
+                        file_cases +=1
+                        if execution_result == "PASS":
+                            passed_cases = passed_cases + 1
+                            file_passed_cases+=1
+                    print(f"File Cases Finished :{file_cases} ;Passed :{file_passed_cases} ;Failed :{file_cases - file_passed_cases}\n")
+                    with open(op_file_name, 'a') as op_file:
+                        op_file.write(f"File Cases :{file_cases} ;Passed :{file_passed_cases} ;Failed :{file_cases - file_passed_cases}\n")
+            else :
+                consistancy_headers = ["TC id", "Executed Command","Consitancy md5sum check"]
+                
+                for i in range(1, total_iterations + 1):
+                    consistancy_headers += [f"Execution_Result{i}", f"MD5sum{i}", f"Error{i}"]          
+                
+                
+                def compare_md5sums(md5_list):
+                    if all(md5 == md5_list[0] for md5 in md5_list):  
+                        return "MATCH"
+                    else:
+                        return "MISMATCH"   
+                        
+                with open(filepath) as csvf:
+                    tc_num = 1
+                    outfilename = filepath.replace(".txt",file_pattern)
+                    ftemp=open(outfilename, 'w')
+                    ftemp.close()
+                    print(f"File : {filepath}")
+                    with open(op_file_name,'a') as op_file:
+                        # op_file.write(f"File : {filepath}"+'\n')
+                        print(",".join(consistancy_headers))
+                        op_file.write(",".join(consistancy_headers)+'\n')
+                    file_cases = 0
+                    file_passed_cases = 0
+                    for row in csvf:
+                        data = row.strip().split(',')
+                        for app in ['ffmpeg', 'gst-launch-1.0', 'ma35_decoder_app', 'ma35_encoder_app', 'ma35_ml_app',
+                                    'ma35_scaler_app', 'ma35_transcoder_app','ma35_roi_transcoder_app']:
+                            if len(data) >= 5 and app in data[4].split(' ')[0]:
+                                test_id, density, fps, md5val, command = data[0], data[1], data[2], data[3], data[4].strip().split(' > ')[0]
+                                if len(data) > 5:
+                                    command = ','.join(data[4:])
+                                break
+                            elif app in data[0].split(' ')[0]:
+                                command = row.strip().split(' > ')[0]
+                                if not command or command[0] == '#':
+                                    continue
+                                test_id = fname + "_" + str(tc_num)
+                                fps = "NA"
+                                density = "NA"
+                                prev_fname = fname
+                                md5val = str(0)
+                                break
+                        else:
+                            print(f"Wrong command format in {csvf}")
+                            continue
+                        try:
+                            if cr_file_name != "NULL":
+                                cr_num=cr_list[test_id]
+                            else:
+                                cr_num="No CR found"
+                        except KeyError:
+                            cr_num="No CR found"
+                
+                        tc_num = tc_num + 1
+                        if in_arg_idx:
+                            if app in ['gst-launch-1.0', 'ma35_decoder_app', 'ma35_encoder_app', 'ma35_ml_app',
+                                       'ma35_scaler_app', 'ma35_transcoder_app','ma35_roi_transcoder_app']:
+                                print(f"ERROR:Currently {in_args} feature not support for 'gst-launch-1.0'|'ma35'")
+                                exit(0)
+                            command = add_in_params(command, in_args)
+                        if out_arg_idx:
+                            if app in ['gst-launch-1.0', 'ma35_decoder_app', 'ma35_encoder_app', 'ma35_ml_app',
+                                       'ma35_scaler_app', 'ma35_transcoder_app','ma35_roi_transcoder_app']:
+                                print(f"ERROR:Currently {out_args} feature not support for 'gst-launch-1.0'|'ma35'")
+                                exit(0)    
+                            command = add_out_params(command, out_args)
+                            
+                        all_results=[]
+                        row_data = []
+                        md5sums = []
+                        
+                        tag_test_id = f"{tag}-{folder_path}-{test_id}"
+                        all_results.append(tag_test_id)
+                        all_results.append(command)
+                        os.makedirs(op_folder_name, exist_ok=True)
+                        for i in range(1, total_iterations + 1):
+                            run_folder = os.path.join(op_folder_name, f"run{i}")
+        
+                            original_cwd = os.getcwd()
+                            execution_result, md5val_ret, md5sum_op, cr_num_ret, error_code, new_cmd = run_func_test(
+                                test_id, device, command, md5val, cr_num, app,run_folder)
+                            os.chdir(original_cwd)   
+                            
+                            filepath = os.path.join(run_folder, f"{test_id}_run{i}.txt")
+                            write_file(test_id, density, fps, md5val_ret, command, filepath)
+                            
+                            row_data.extend([execution_result, md5sum_op, error_code])
+                            md5sums.append(md5sum_op)  
+                        
+                        compare_result = compare_md5sums(md5sums)
+                        all_results.append(compare_result)
+                        all_results=all_results+row_data                          
+                        output_file = os.path.join(op_folder_name, "output_results.xlsx")
+                        all_results_quoted = [quote_if_needed(item) for item in all_results]
+                        with open(op_file_name, 'a') as op_file:
+                            op_file.write(','.join(all_results_quoted)+'\n')
     if force_write == 1:
         file_overwrite(basepath)
-    print(f"Finished running, Total cases :{total_cases} ;Passed :{passed_cases} ;Failed :{total_cases - passed_cases}")
-    print(f"For detailed results check {op_file_name}")
-    with open(op_file_name, 'a') as op_file:
-        op_file.write(f"Total :{total_cases} ;Passed :{passed_cases} ;Failed :{total_cases - passed_cases}\n")
+    if total_iterations <= 1:    
+        print(f"Finished running, Total cases :{total_cases} ;Passed :{passed_cases} ;Failed :{total_cases - passed_cases}")
+        print(f"For detailed results check {op_file_name}")
+        with open(op_file_name, 'a') as op_file:
+            op_file.write(f"Total :{total_cases} ;Passed :{passed_cases} ;Failed :{total_cases - passed_cases}\n")
 
 if __name__ == "__main__":
     main_wrapper()

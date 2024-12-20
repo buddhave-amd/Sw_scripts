@@ -29,6 +29,7 @@ op_file_name="results.csv"
 header = ["TC id","Execution_Result","MD5 golden","MD5 sum","CR number","Error","Executed Command"]
 retain = 0
 LAST_N_LINES = 8
+ffmpeg_dev_path_value="NA"
 
 def time_stamp():
     current_timestamp = datetime.now()
@@ -758,6 +759,7 @@ def main_wrapper():
     global device
     global prev_fname
     global total_iterations
+    global ffmpeg_dev_path_value
     if '-h' in sys.argv or '--help' in sys.argv:
         script_usage()
         exit(0)
@@ -809,7 +811,13 @@ def main_wrapper():
         timeout_value = int(sys.argv[timeout_value_index])
     except (ValueError,IndexError) as ve:
         print(f'The specified -t was not found, default -t is {timeout_value} sec')
-       
+
+    try:
+        ffmpeg_dev_path_index = sys.argv.index("--ffmpeg_dev_path") + 1
+        ffmpeg_dev_path_value = sys.argv[ffmpeg_dev_path_index]
+    except (ValueError,IndexError) as ve:
+        print(f'The specified --ffmpeg_dev_path was not found. Using default path in command')
+                
     try:
         standalone_index = sys.argv.index("-standalone")
     except:
@@ -1060,6 +1068,7 @@ def main_wrapper():
                                 exit(0)
                                 
                             command = add_out_params(command, out_args)
+
                         execution_result,md5val_ret,md5sum_op,cr_num_ret,error_code,new_cmd =run_func_test(test_id,device,command,md5val,cr_num,app,"NA")
                         write_file(test_id,density,fps,md5val_ret,command,filepath)
                         tag_test_id = tag + '-' + folder_path + '-' + test_id
@@ -1074,7 +1083,7 @@ def main_wrapper():
                     print(f"File Cases Finished :{file_cases} ;Passed :{file_passed_cases} ;Failed :{file_cases - file_passed_cases}\n")
                     with open(op_file_name, 'a') as op_file:
                         op_file.write(f"File Cases :{file_cases} ;Passed :{file_passed_cases} ;Failed :{file_cases - file_passed_cases}\n")
-            else :
+            else : ###Consistancy cases
                 consistancy_headers = ["TC id", "Executed Command","Consitancy md5sum check"]
                 
                 for i in range(1, total_iterations + 1):
@@ -1108,6 +1117,10 @@ def main_wrapper():
                                 if len(data) > 5:
                                     command = ','.join(data[4:])
                                 break
+                            elif (len(data) >=2 and len(data) <=2 ) and app in data[4].split(' ')[0]:
+                                consistancy_density,command = data[0], data[1].strip().split(' > ')[0]
+                                if len(data) > 2:
+                                    command = ','.join(data[1:])
                             elif app in data[0].split(' ')[0]:
                                 command = row.strip().split(' > ')[0]
                                 if not command or command[0] == '#':
@@ -1140,9 +1153,18 @@ def main_wrapper():
                             if app in ['gst-launch-1.0', 'ma35_decoder_app', 'ma35_encoder_app', 'ma35_ml_app',
                                        'ma35_scaler_app', 'ma35_transcoder_app','ma35_roi_transcoder_app']:
                                 print(f"ERROR:Currently {out_args} feature not support for 'gst-launch-1.0'|'ma35'")
-                                exit(0)    
+                                exit(0)
                             command = add_out_params(command, out_args)
-                            
+                        ffmpeg_path_from_command=command.strip().split(' ')[0]
+                        if "_deps" in ffmpeg_path_from_command:
+                            if  ffmpeg_dev_path_value == "NA" :
+                                print("[Error]The command has ffmpeg path as _deps/ffmpeg-build/ffmpeg. If using debians, please change the ffmpegPath in commandset to \"ffmpeg\"   \n If testing in dev_env Please give absolute path of ffmpeg in command after --ffmpeg_dev_path_value option\n Exiting...." )
+                                exit(0)
+                            elif not os.path.exists(ffmpeg_dev_path_value):
+                                print(f"[Error] :The given absolute path {ffmpeg_dev_path_value} for ffmpeg does not exist. Exiting...")
+                                exit(0)
+                            else :
+                                command=command.replace("_deps/ffmpeg-build/ffmpeg", ffmpeg_dev_path_value)
                         all_results=[]
                         row_data = []
                         md5sums = []

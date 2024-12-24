@@ -19,6 +19,7 @@ windows_mapped_drive_path="T:"
 linux_path_fmg="/opt/amd/ama/ma35/bin/ffmpeg"
 windows_path_fmg="ffmpeg"
 TC_output_Destination_folder='TC_outputs'
+TC_output_Destination_folder_name='TC_outputs'
 md5empty="d41d8cd98f00b204e9800998ecf8427e"
 prev_fname="NULL"
 device=0
@@ -30,6 +31,7 @@ header = ["TC id","Execution_Result","MD5 golden","MD5 sum","CR number","Error",
 retain = 0
 LAST_N_LINES = 8
 ffmpeg_dev_path_value="NA"
+ffmpeg_settle_time=3
 
 def time_stamp():
     current_timestamp = datetime.now()
@@ -82,7 +84,12 @@ def killfunc(application):
                 return
         except subprocess.CalledProcessError as e:
             return
-
+def compare_md5sums(md5_list):
+    if all(md5 == md5_list[0] for md5 in md5_list):  
+        return "MATCH"
+    else:
+        return "MISMATCH"   
+                        
 def killfunc_win(process_name):
     while True:
         try:
@@ -315,7 +322,7 @@ def set_output_filenames_gst(command,tc_num,out_tag):
             else:
                 return out_file_names, command
 
-            name="TC_op_" + str(tc_num) + "_" + str(out_num) + tc_name_ext
+            name="TC_op_" + str(tc_num) + "_" + str(out_num) + tc_name_ext 
             splitcmd[i+1] = 'location=' + name + (splitcmd[i+1][-1] if (not tc_name_ext) and (splitcmd[i+1][-1] == "'" or splitcmd[i+1][-1] == '"') else '')
             out_file_names.append(name.strip('"'))
             out_num = out_num + 1
@@ -328,7 +335,7 @@ def set_output_filenames_gst(command,tc_num,out_tag):
         ret_cmd = ret_cmd.replace("'", "\"")
     return out_file_names,ret_cmd
 
-def set_output_filenames(command,tc_num,out_tag):
+def set_output_filenames(command,tc_num,out_tag,den):
     splitcmd = command.split()
     for i in range(len(splitcmd)):
         if splitcmd[i] == "-i":
@@ -350,7 +357,7 @@ def set_output_filenames(command,tc_num,out_tag):
                         tc_name_ext =  '.' + tc_name[1]
 
 
-            name="TC_op_" + str(tc_num) + "_" + str(out_num) + tc_name_ext
+            name="TC_op_" + str(tc_num) + "_" + str(out_num) + tc_name_ext + "_{:03d}".format(den)
             splitcmd[i+1] = name
             out_file_names.append(name)
             out_num = out_num + 1
@@ -479,140 +486,265 @@ def Kill_application(process_name):
                 print(f"Could not terminate process {proc.info['pid']}: {e}")
                 raise SystemExit(f'ERROR: Unable to terminate process, Exception: {e}')
                 
-def run_func_test(tc_num,dev,cmd,md5val,cr_num,app,run_folder):
+def run_func_test(tc_num,dev,cmd,md5val,cr_num,app,run_folder,consistancy_density_num):
     global total_iterations
     if total_iterations >1 and run_folder !="NA":
         os.makedirs(run_folder, exist_ok=True)
         os.chdir(run_folder)
     global timeout_value
+    global TC_output_Destination_folder
+    
+
+    TC_output_Destination_folder=os.path.join(run_folder,TC_output_Destination_folder_name)
+    if retain == 1 and total_iterations >1 :
+        os.makedirs(TC_output_Destination_folder, exist_ok=True)
+        print(f"creating outdir ={TC_output_Destination_folder}\n")
     #killing the application before executing the command
-    if cur_platform == 'windows':
-        Kill_application(app + '.exe')
-    #else:
-    #    Kill_application(app)
-    subp_arr=[]
-    j=0
-    cmd = cmd.strip()
-    if 'ffmpeg' == app and check_param_out(cmd,'-y'):
-        out_tag = '-y'
-    elif 'gst-launch-1.0' == app and  'filesink location' in cmd:
-        out_tag = 'filesink'
-    elif 'ma35' in app and check_param_out(cmd,'-o'):
-        out_tag = '-o'
-    else:
-        print(f"Command executed : {cmd}")
-        print(f"Wrong format of command. output missing!!")
-        return 'FAIL',md5val,'NULL',cr_num,"Wrong format of command output or -i missing",cmd
-
-    if app == 'ffmpeg':
-        cmdlineread = remove_device(cmd)
-        cmdlineread = add_at_pos(cmdlineread,1,create_device(dev))
-        cmdlineread = add_before(cmdlineread, "-i", "-nostdin")
-    elif 'gst-launch-1.0' == app:
-        cmdlineread = re.sub(r'\bdevice\s*=\s*\S+', f'device={dev}', cmd)
-    elif 'ma35' in app:
-        cmdlineread = re.sub(r'-d\s+\S+', f'-d {dev}', cmd)
-
-    if 'gst-launch-1.0' == app:
-        tc_out_names, new_cmd = set_output_filenames_gst(cmdlineread, tc_num, out_tag)
-    else:
-        tc_out_names,new_cmd = set_output_filenames(cmdlineread,tc_num,out_tag)
-
-    if not tc_out_names:
-        return 'FAIL', md5val, 'NULL', cr_num, "Output is missing in command", cmd
-
-    if 'gst-launch-1.0' == app:
+    if consistancy_density_num == 1: 
+        den=0
+        if cur_platform == 'windows':
+            Kill_application(app + '.exe')
+        #else:
+        #    Kill_application(app)
+        subp_arr=[]
+        j=0
+        cmd = cmd.strip()
+            
+        if 'ffmpeg' == app and check_param_out(cmd,'-y'):
+            out_tag = '-y'
+        elif 'gst-launch-1.0' == app and  'filesink location' in cmd:
+            out_tag = 'filesink'
+        elif 'ma35' in app and check_param_out(cmd,'-o'):
+            out_tag = '-o'
+        else:
+            print(f"Command executed : {cmd}")
+            print(f"Wrong format of command. output missing!!")
+            return 'FAIL',md5val,'NULL',cr_num,"Wrong format of command output or -i missing",cmd
+    
+        if app == 'ffmpeg':
+            cmdlineread = remove_device(cmd)
+            cmdlineread = add_at_pos(cmdlineread,1,create_device(dev))
+            cmdlineread = add_before(cmdlineread, "-i", "-nostdin")
+        elif 'gst-launch-1.0' == app:
+            cmdlineread = re.sub(r'\bdevice\s*=\s*\S+', f'device={dev}', cmd)
+        elif 'ma35' in app:
+            cmdlineread = re.sub(r'-d\s+\S+', f'-d {dev}', cmd)
+    
+        if 'gst-launch-1.0' == app:
+            tc_out_names, new_cmd = set_output_filenames_gst(cmdlineread, tc_num, out_tag)
+        else:
+            tc_out_names,new_cmd = set_output_filenames(cmdlineread,tc_num,out_tag,consistancy_density_num)
+    
+        if not tc_out_names:
+            return 'FAIL', md5val, 'NULL', cr_num, "Output is missing in command", cmd
+    
+        if 'gst-launch-1.0' == app:
+            try:
+                input_file = re.findall(r'filesrc location=([^\s]+)',new_cmd)[0]
+            except:
+                print(f"InputVector not found in  command ==> {new_cmd}")
+                return 'FAIL', md5val, 'NULL', cr_num, "InputVector not found", cmd
+        else:
+            input_file = get_param(new_cmd, "-i")
+            
+        if not os.path.isfile(input_file) and '%' not in input_file:
+            print(f"InputVector not exist:==>{input_file}")
+            return 'FAIL',md5val,'NULL',cr_num,"InputVector not exist",cmd
+    
+        log_app = app.split('-')[0].split('_')[0]
+        log_name=f'log_{log_app}_{den}_run_functest.txt'
+        log_out_name = f'log_{log_app}_{den}_run_functest_out.txt'
+        command_exec = new_cmd + " > " + log_name + " 2>&1"
+        print(f"###Command Exe:{command_exec}\n ####logname={log_name}")
+        print(f"Command executed : {command_exec}")
+    
         try:
-            input_file = re.findall(r'filesrc location=([^\s]+)',new_cmd)[0]
-        except:
-            print(f"InputVector not found in  command ==> {new_cmd}")
-            return 'FAIL', md5val, 'NULL', cr_num, "InputVector not found", cmd
-    else:
-        input_file = get_param(new_cmd, "-i")
-        
-    if not os.path.isfile(input_file) and '%' not in input_file:
-        print(f"InputVector not exist:==>{input_file}")
-        return 'FAIL',md5val,'NULL',cr_num,"InputVector not exist",cmd
-
-    log_app = app.split('-')[0].split('_')[0]
-    log_name=f'log_{log_app}_run_functest.txt'
-    log_out_name = f'log_{log_app}_run_functest_out.txt'
-    command_exec = new_cmd + " > " + log_name + " 2>&1"
-    print(f"Command executed : {command_exec}")
-
-    try:
-        subp  = subprocess.Popen(command_exec,shell=True)
-        return_code = subp.wait(timeout=timeout_value)
-    except subprocess.TimeoutExpired:
-        print("Command execution timed out")
-        try:
-            process = psutil.Process(subp.pid)
-            for proc in process.children(recursive=True):
-                proc.terminate()
+            subp  = subprocess.Popen(command_exec,shell=True)
+            return_code = subp.wait(timeout=timeout_value)
+        except subprocess.TimeoutExpired:
+            print("Command execution timed out")
+            try:
+                process = psutil.Process(subp.pid)
+                for proc in process.children(recursive=True):
+                    proc.terminate()
+                    proc.wait(timeout=40)
+                process.terminate()
                 proc.wait(timeout=40)
-            process.terminate()
-            proc.wait(timeout=40)
-            md5_arr, num_md5 = generate_md5sum_using_tc_outputs(tc_out_names)
-            return 'FAIL',md5val,'NULL',cr_num,"Command execution timed out",new_cmd
+                md5_arr, num_md5 = generate_md5sum_using_tc_outputs(tc_out_names)
+                return 'FAIL',md5val,'NULL',cr_num,"Command execution timed out",new_cmd
+            except Exception as e:
+                raise SystemExit(f'ERROR: Unable to terminate process, Exception: {e}')
+    
         except Exception as e:
-            raise SystemExit(f'ERROR: Unable to terminate process, Exception: {e}')
-
-    except Exception as e:
-        raise SystemExit(f'An unexpected error occurred: {e}')
-
-    error_code = "NA"
-    execution_result = "PASS"
-    md5_arr,num_md5 = generate_md5sum_using_tc_outputs(tc_out_names)
-    file_name = log_file(log_name, log_out_name)
-    if not return_code:
-        #'Execution ended after' -->for gst
-        #'Total FPS:' -->for xma
-        log_status = validate_console_log(file_name,app)
-    else:
-        log_status = False
-
-    md5valout=md5val
-    if len(tc_out_names) != num_md5 and not any(re.search(r'%0[0-9]d', tc_name) for tc_name in tc_out_names):
-        execution_result = "FAIL"
-    md5sum_op = ';'.join(md5_arr)
-    if execution_result != "FAIL":
-        if md5val != md5sum_op:
-            if md5val != str(0):
-                execution_result = "FAIL"
-                error_code = "md5sum mismatch"
-            if log_status:
-                md5valout = md5sum_op
-
-    if execution_result == "FAIL":
-        cr_num_local = cr_num
-    else:
-        cr_num_local = "NA"
-    if execution_result == "FAIL" or not log_status:
-        if not (error_code == "md5sum mismatch" and log_status):
+            raise SystemExit(f'An unexpected error occurred: {e}')
+    
+        error_code = "NA"
+        execution_result = "PASS"
+        md5_arr,num_md5 = generate_md5sum_using_tc_outputs(tc_out_names)
+        file_name = log_file(log_name, log_out_name)
+        if not return_code:
+            #'Execution ended after' -->for gst
+            #'Total FPS:' -->for xma
+            log_status = validate_console_log(file_name,app)
+        else:
+            log_status = False
+    
+        md5valout=md5val
+        if len(tc_out_names) != num_md5 and not any(re.search(r'%0[0-9]d', tc_name) for tc_name in tc_out_names):
             execution_result = "FAIL"
-            error_code= find_error_code(file_name)
-            if not error_code:
-                error_code = f"{app} command terminated without error"
-                md5sum_op = 'NA'
+        md5sum_op = ';'.join(md5_arr)
+        if execution_result != "FAIL":
+            if md5val != md5sum_op:
+                if md5val != str(0):
+                    execution_result = "FAIL"
+                    error_code = "md5sum mismatch"
+                if log_status:
+                    md5valout = md5sum_op
+    
+        if execution_result == "FAIL":
+            cr_num_local = cr_num
+        else:
+            cr_num_local = "NA"
+        if execution_result == "FAIL" or not log_status:
+            if not (error_code == "md5sum mismatch" and log_status):
+                execution_result = "FAIL"
+                error_code= find_error_code(file_name)
+                if not error_code:
+                    error_code = f"{app} command terminated without error"
+                    md5sum_op = 'NA'
+    
+        new_log_name=file_name.replace(".txt","_"+tc_num+".txt")
+        try:
+            os.remove(new_log_name)
+        except FileNotFoundError:
+            pass
+    
+        try:
+            os.rename(file_name,execution_result+'_'+new_log_name)
+        except FileExistsError:
+            os.remove(execution_result+'_'+new_log_name)
+            os.rename(file_name,execution_result+'_'+new_log_name)
+        
+        print(f"Result : {str(tc_num)},execution_status:{execution_result},md5sum:{md5sum_op}, Err_code:{error_code}\n")
+        return execution_result,md5valout,md5sum_op,cr_num_local,error_code,new_cmd
+    else : # consistancy_density > 1
+        proc_arr=[]
+        proc_ret_arr=[]
+        log_name_arr=[]
+        log_out_name_arr=[]
+        file_name_arr=[]
+        tc_out_names_arr=[]
+        md5_density_arr=[]
+        num_md5_arr=[]
+        command_to_update=""
+        for den in range(0,int(consistancy_density_num)):
+            subp_arr=[]
+            j=0
+            cmd = cmd.strip()
+            
+            if 'ffmpeg' == app and check_param_out(cmd,'-y'):
+                out_tag = '-y'
+            else:
+                print(f"Command executed : {cmd}")
+                print(f"Wrong format of command. output missing!!")
+                return 'FAIL',md5val,'NULL',cr_num,"Wrong format of command output or -i missing",cmd
+        
+            if app == 'ffmpeg':
+                cmdlineread = remove_device(cmd)
+                cmdlineread = add_at_pos(cmdlineread,1,create_device(dev))
+                cmdlineread = add_before(cmdlineread, "-i", "-nostdin")
+            tc_out_names,new_cmd = set_output_filenames(cmdlineread,tc_num,out_tag,den)
+            tc_out_names_arr.append(tc_out_names)
+            if not tc_out_names:
+                return 'FAIL', md5val, 'NULL', cr_num, "Output is missing in command", cmd
+        
 
-    new_log_name=file_name.replace(".txt","_"+tc_num+".txt")
-    try:
-        os.remove(new_log_name)
-    except FileNotFoundError:
-        pass
+            input_file = get_param(new_cmd, "-i")
+                
+            if not os.path.isfile(input_file) and '%' not in input_file:
+                print(f"InputVector not exist:==>{input_file}")
+                return 'FAIL',md5val,'NULL',cr_num,"InputVector not exist",cmd
+        
+            log_app = app.split('-')[0].split('_')[0]
+            den_str="{:03d}".format(den)
+            log_name=f'log_{log_app}_{tc_num}_{den_str}_run_functest.txt'
+            log_out_name = f'log_{log_app}_{tc_num}_{den_str}_run_functest_out.txt'
+            log_name_arr.append(log_name)
+            log_out_name_arr.append(log_out_name)
+            command_exec = new_cmd + " > " + log_name + " 2>&1" 
+            print(f"Iteration{den} :\nCommand executed : {command_exec}")
+            
+            proc_arr.append(subprocess.Popen(command_exec,stderr=subprocess.PIPE, stdout=subprocess.PIPE,shell=True))
+            
+        den=0
+        consistancy_timeout_val=600
+        #wait for completion and collect logs and md5sum
+        for den in range(0,int(consistancy_density_num)):
+            try:
+                
+                stdout,stderr=proc_arr[den].communicate(timeout=consistancy_timeout_val)  
+                num_process_running = int(subprocess.Popen("ps aux | grep -w ffmpeg | grep -w $USER | grep -w -- -i | grep -v grep -c", shell=True,stdout=subprocess.PIPE,universal_newlines=True).communicate()[0])
+                while (int(num_process_running) > 0):
+                    num_process_running = int(subprocess.Popen("ps aux | grep -w ffmpeg | grep -w $USER | grep -w -- -i | grep -v grep -c", shell=True,stdout=subprocess.PIPE,universal_newlines=True).communicate()[0].strip())
+                    time.sleep(1)  
+                    print(f"Waiting for {num_process_running} ffmpeg processes to finish")              
+            except subprocess.TimeoutExpired:
+                print(f"\nKilling ffmpeg due to Timeout({consistancy_timeout_val} seconds)", flush=True)
 
-    try:
-        os.rename(file_name,execution_result+'_'+new_log_name)
-    except FileExistsError:
-        os.remove(execution_result+'_'+new_log_name)
-        os.rename(file_name,execution_result+'_'+new_log_name)
+            ret_temp= proc_arr[den].returncode    
+            proc_ret_arr.append(ret_temp)
+            error_code = "NA"
+            execution_result = "PASS"
+            execution_result_short ="PASS"
+            md5sum_op = "NA"
+            error_code_str=""
+            md5_arr,num_md5 = generate_md5sum_using_tc_outputs(tc_out_names_arr[den])
+            md5_density_arr.append(md5_arr)
+            num_md5_arr.append(num_md5)
 
-    #print(",".join(header))
-    #printval = [str(tc_num),execution_result,md5val,md5sum_op,cr_num_local,error_code]
-    #print(",".join(printval))
-    print(f"Result : {str(tc_num)},execution_status:{execution_result},md5sum:{md5sum_op}, Err_code:{error_code}\n")
-    return execution_result,md5valout,md5sum_op,cr_num_local,error_code,new_cmd
+            file_name= log_file(log_name_arr[den], log_out_name_arr[den]) #???
+            file_name_arr.append(file_name)
+    
+        #postprocessing of logs & populate results    
 
+        fail_runs = []
+        for index, ret_code in enumerate(proc_ret_arr):
+            if ret_code != 0:
+                fail_runs.append(f"run{index}")
+                #TBD :Add validate_console_logs later
+                #TBD : rename pass and fail for logs & tc_num
+                error_code_str=error_code_str+str(ret_code)+";"
+        if fail_runs:
+            execution_result = f"FAIL:{','.join(fail_runs)}"
+            execution_result_short ="FAIL"
+            md5sum_op = "NA"
+        else :
+              error_code_str="0"  
+        error_code=error_code_str
+
+        if execution_result == "PASS":
+        #check if md5sum is same across densities, if not same Then retrun full list of md5sums ()
+            if all(md5_lst == md5_density_arr[0] for md5_lst in md5_density_arr):
+                md5val = ";".join(md5_density_arr[0])
+            else:
+                md5val = ";".join([f"iter{i}:{';'.join(sublist)}" for i, sublist in enumerate(md5_density_arr)])
+                md5val="Inconsistent:"+md5val
+        md5sum_op=md5val    
+ 
+        md5valout="NA_unused"
+        cr_num_local="NA_unused"
+        
+        #verify
+        #print("\n###############################################")
+        #print("###############################################")
+        #print(f"(md5_density_arr)={md5_density_arr}")
+        #print(f"num_md5_arr={num_md5_arr}. ")
+        #print(f"ret_code={proc_ret_arr}")
+        #print(f"file_name_arr={file_name_arr}")
+        #print("###############################################")
+        #print("###############################################\n")
+        print(f"Result : {str(tc_num)},execution_status:{execution_result_short},md5sum:{md5sum_op}, Err_code:{error_code}\n")
+        return execution_result,md5valout,md5sum_op,cr_num_local,error_code,new_cmd
 def prepare_cr_table(cr_file_path):
     cr_list={}
     #prepare CR table
@@ -760,6 +892,8 @@ def main_wrapper():
     global prev_fname
     global total_iterations
     global ffmpeg_dev_path_value
+    global TC_output_Destination_folder
+    consistancy_density_num=1
     if '-h' in sys.argv or '--help' in sys.argv:
         script_usage()
         exit(0)
@@ -875,7 +1009,7 @@ def main_wrapper():
     initial_cleanup(basepath)
     op_file = open(op_file_name,'w')
     op_file.close()
-    if retain == 1:
+    if retain == 1 and total_iterations <=1 :
         os.makedirs(TC_output_Destination_folder, exist_ok=True)
     standlone = ''
     if os.path.isdir(basepath):
@@ -937,6 +1071,10 @@ def main_wrapper():
                                     if len(data) > 5:
                                         command = ','.join(data[4:])
                                     break
+                                elif (len(data) >=2 and app in data[1] ):
+                                    consistancy_density_num,command = data[0], data[1].strip().split(' > ')[0]
+                                    if len(data) > 2:
+                                        command = ','.join(data[1:])
                                 elif app in data[0].split(' ')[0]:
                                     command = row.strip().split(' > ')[0]
                                     if not command or command[0] == '#':
@@ -947,9 +1085,9 @@ def main_wrapper():
                                     prev_fname = fname
                                     md5val = str(0)
                                     break
-                            else :
-                                print(f"Wrong command format in {csvf}")
-                                continue
+                                else :
+                                    print(f"Wrong command format in {csvf}")
+                                    continue
                             try:
                                 if cr_file_name != "NULL":
                                     cr_num=cr_list[test_id]
@@ -971,7 +1109,7 @@ def main_wrapper():
                                     print(f"ERROR:Currently {out_args} feature not support for 'gst-launch-1.0'|'ma35'")
                                     exit(0)
                                 command = add_out_params(command, out_args)
-                            execution_result,md5val_ret,md5sum_op,cr_num_ret,error_code,new_cmd =run_func_test(test_id,device,command,md5val,cr_num,app,"NA")
+                            execution_result,md5val_ret,md5sum_op,cr_num_ret,error_code,new_cmd =run_func_test(test_id,device,command,md5val,cr_num,app,"NA",1)
                             write_file(test_id,density,fps,md5val_ret,command,filepath)
                             tag_test_id = tag+'-'+folder_path+'-'+test_id
                             out=[tag_test_id,execution_result,md5val,md5sum_op,cr_num_ret,error_code,new_cmd]
@@ -1033,19 +1171,23 @@ def main_wrapper():
                                 if len(data) > 5:
                                     command = ','.join(data[4:])
                                 break
+                            elif (len(data) >=2 and app in data[1] ):
+                                consistancy_density_num,command = data[0], data[1].strip().split(' > ')[0]
+                                if len(data) > 2:
+                                    command = ','.join(data[1:])
                             elif app in data[0].split(' ')[0]:
                                 command = row.strip().split(' > ')[0]
                                 if not command or command[0] == '#':
                                     continue
                                 test_id = fname + "_" + str(tc_num)
-                                fps = "NA"
-                                density = "NA"
+                                fps="NA"
+                                density="NA"
                                 prev_fname = fname
                                 md5val = str(0)
                                 break
-                        else:
-                            print(f"Wrong command format in {csvf}")
-                            continue
+                            else:
+                                print(f"Wrong command format in {csvf}")
+                                continue
                         try:
                             if cr_file_name != "NULL":
                                 cr_num=cr_list[test_id]
@@ -1069,7 +1211,7 @@ def main_wrapper():
                                 
                             command = add_out_params(command, out_args)
 
-                        execution_result,md5val_ret,md5sum_op,cr_num_ret,error_code,new_cmd =run_func_test(test_id,device,command,md5val,cr_num,app,"NA")
+                        execution_result,md5val_ret,md5sum_op,cr_num_ret,error_code,new_cmd =run_func_test(test_id,device,command,md5val,cr_num,app,"NA",1)
                         write_file(test_id,density,fps,md5val_ret,command,filepath)
                         tag_test_id = tag + '-' + folder_path + '-' + test_id
                         out=[tag_test_id,execution_result,md5val,md5sum_op,cr_num_ret,error_code,new_cmd]
@@ -1087,15 +1229,10 @@ def main_wrapper():
                 consistancy_headers = ["TC id", "Executed Command","Consitancy md5sum check"]
                 
                 for i in range(1, total_iterations + 1):
-                    consistancy_headers += [f"Execution_Result{i}", f"MD5sum{i}", f"Error{i}"]          
+                    consistancy_headers += [f"Execution_Result{i}", f"MD5sum{i}", f"Error/Error_code{i}"]          
                 
                 
-                def compare_md5sums(md5_list):
-                    if all(md5 == md5_list[0] for md5 in md5_list):  
-                        return "MATCH"
-                    else:
-                        return "MISMATCH"   
-                        
+
                 with open(filepath) as csvf:
                     tc_num = 1
                     outfilename = filepath.replace(".txt",file_pattern)
@@ -1110,6 +1247,7 @@ def main_wrapper():
                     file_passed_cases = 0
                     for row in csvf:
                         data = row.strip().split(',')
+                        consistancy_density_num=1
                         for app in ['ffmpeg', 'gst-launch-1.0', 'ma35_decoder_app', 'ma35_encoder_app', 'ma35_ml_app',
                                     'ma35_scaler_app', 'ma35_transcoder_app','ma35_roi_transcoder_app']:
                             if len(data) >= 5 and app in data[4].split(' ')[0]:
@@ -1117,11 +1255,19 @@ def main_wrapper():
                                 if len(data) > 5:
                                     command = ','.join(data[4:])
                                 break
-                            elif (len(data) >=2 and len(data) <=2 ) and app in data[4].split(' ')[0]:
-                                consistancy_density,command = data[0], data[1].strip().split(' > ')[0]
+                            #elif (len(data) >=2 and len(data) <=5 ) and app in data[4].split(' ')[0]:
+                            #elif (len(data) >=1 and app in data[1].split(' ')[0] ):
+                            #elif (len(data) >=1 and "ffmpeg" in data[1].split(' ')[0] ):
+                            elif (len(data) >=2 and "ffmpeg" in data[1].split(' ')[0] ):
+                                consistancy_density_num,command = data[0], data[1].strip().split(' > ')[0]
+                                #test_id = fname + "_" + str(tc_num)+"_"+str(consistancy_density_num)+"x_"
+                                test_id = fname + "_" + str(tc_num)
+                                prev_fname = fname
+                                md5val = str(0)
                                 if len(data) > 2:
                                     command = ','.join(data[1:])
-                            elif app in data[0].split(' ')[0]:
+                                break    
+                            elif "ffmpeg" in data[0].split(' ')[0]:
                                 command = row.strip().split(' > ')[0]
                                 if not command or command[0] == '#':
                                     continue
@@ -1168,26 +1314,31 @@ def main_wrapper():
                         all_results=[]
                         row_data = []
                         md5sums = []
-                        
+                        execution_result_fail_flag=True
+
                         tag_test_id = f"{tag}-{folder_path}-{test_id}"
                         all_results.append(tag_test_id)
                         all_results.append(command)
                         os.makedirs(op_folder_name, exist_ok=True)
                         for i in range(1, total_iterations + 1):
-                            run_folder = os.path.join(op_folder_name, f"run{i}")
+                            #run_folder = os.path.join(op_folder_name, f"run{i}")
         
                             original_cwd = os.getcwd()
-                            execution_result, md5val_ret, md5sum_op, cr_num_ret, error_code, new_cmd = run_func_test(
-                                test_id, device, command, md5val, cr_num, app,run_folder)
+                            run_folder = os.path.join(original_cwd,op_folder_name, f"run{i}")
+                            execution_result, md5val_ret_unused, md5sum_op, cr_num_ret_unused, error_code, new_cmd_unused = run_func_test(
+                                test_id, device, command, md5val, cr_num, app,run_folder,consistancy_density_num)
                             os.chdir(original_cwd)   
-                            
-                            filepath = os.path.join(run_folder, f"{test_id}_run{i}.txt")
-                            write_file(test_id, density, fps, md5val_ret, command, filepath)
+                            if execution_result != "PASS":
+                                execution_result_fail_flag=False
+                            #filepath = os.path.join(run_folder, f"{test_id}_run{i}.txt")
+                            #write_file(test_id, density, fps, md5val_ret, command, filepath)
                             
                             row_data.extend([execution_result, md5sum_op, error_code])
                             md5sums.append(md5sum_op)  
-                        
-                        compare_result = compare_md5sums(md5sums)
+                        if execution_result_fail_flag:
+                            compare_result = compare_md5sums(md5sums)
+                        else:
+                            compare_result = "NOCHECK"    
                         all_results.append(compare_result)
                         all_results=all_results+row_data                          
                         output_file = os.path.join(op_folder_name, "output_results.xlsx")
